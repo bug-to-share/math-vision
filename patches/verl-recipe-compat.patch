@@ -1,0 +1,45 @@
+diff --git a/dapo/dapo_ray_trainer.py b/dapo/dapo_ray_trainer.py
+index 9efbe0a..ab72ccb 100644
+--- a/dapo/dapo_ray_trainer.py
++++ b/dapo/dapo_ray_trainer.py
+@@ -40,7 +40,6 @@ from verl.trainer.ppo.reward import extract_reward
+ from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
+ from verl.utils.metric import reduce_metrics
+ from verl.utils.profiler import marked_timer
+-from verl.utils.rollout_skip import RolloutSkip
+ 
+ 
+ class RayDAPOTrainer(RayPPOTrainer):
+@@ -115,10 +114,6 @@ class RayDAPOTrainer(RayPPOTrainer):
+             if self.config.trainer.get("val_only", False):
+                 return
+ 
+-        if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
+-            rollout_skip = RolloutSkip(self.config, self.async_rollout_manager)
+-            rollout_skip.wrap_generate_sequences()
+-
+         # add tqdm
+         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+ 
+diff --git a/dapo/main_dapo.py b/dapo/main_dapo.py
+index ae320d2..4ffa1f1 100644
+--- a/dapo/main_dapo.py
++++ b/dapo/main_dapo.py
+@@ -23,13 +23,14 @@ import hydra
+ import ray
+ 
+ from verl.experimental.reward_loop import migrate_legacy_reward_impl
+-from verl.trainer.main_ppo import TaskRunner, create_rl_dataset, create_rl_sampler, run_ppo
+-from verl.trainer.ppo.utils import need_critic, need_reference_policy
++from verl.trainer.main_ppo import run_ppo
++from verl.trainer.main_ppo_v0 import BaseTaskRunner
++from verl.trainer.ppo.utils import create_rl_dataset, create_rl_sampler, need_critic, need_reference_policy
+ from verl.utils.config import validate_config
+ from verl.utils.device import auto_set_device
+ 
+ 
+-class DAPOTaskRunner(TaskRunner):
++class DAPOTaskRunner(BaseTaskRunner):
+     """TaskRunner that uses RayDAPOTrainer instead of RayPPOTrainer."""
+ 
+     def run(self, config):

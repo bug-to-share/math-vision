@@ -1,0 +1,48 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+# DAPO's primary YAML sets hydra.searchpath and cannot be included as a nested
+# config. Mirror its small algorithm/reward additions here; reuse its trainer.
+data:
+  gen_batch_size: ${data.train_batch_size}
+
+reward:
+  reward_manager:
+    name: dapo
+  reward_kwargs:
+    overlong_buffer_cfg:
+      enable: false
+      len: 0
+      penalty_factor: 0.0
+      log: false
+    max_resp_len: null
+
+algorithm:
+  filter_groups:
+    _target_: verl.trainer.config.FilterGroupsConfig
+    enable: false
+    metric: null
+    max_num_gen_batches: 0
+
+actor_rollout_ref:
+  actor:
+    strategy: fsdp2
+    fsdp_config:
+      _target_: recipe.papo.config.PAPOFSDPEngineConfig
+      papo:
+        _target_: recipe.papo.config.PAPOConfig
+        enabled: true
+        mask_probability: 0.6
+        seed: 42
+        perception_coef: 0.01
+        clean_entropy_coef: 0.03
+        masked_entropy_coef: 0.03
+        gradient_mode: recompute_grad
+
+trainer:
+  project_name: verl-papo

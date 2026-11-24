@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+.env.*
+data/
+outputs/
+checkpoints/
+*.parquet
+*.pt
+*.safetensors
+*.log

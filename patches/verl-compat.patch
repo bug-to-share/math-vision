@@ -1,0 +1,116 @@
+diff --git a/examples/data_preprocess/geo3k.py b/examples/data_preprocess/geo3k.py
+index ba84fd3..09ac81d 100644
+--- a/examples/data_preprocess/geo3k.py
++++ b/examples/data_preprocess/geo3k.py
+@@ -50,7 +50,7 @@ if __name__ == "__main__":
+ 
+     instruction_following = (
+         r"You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
+-        r"The reasoning process MUST BE enclosed within <think> </think> tags. "
++        r"The reasoning process MUST BE enclosed within <thinking> </thinking> tags. "
+         r"The final answer MUST BE put in \boxed{}."
+     )
+ 
+diff --git a/verl/experimental/agent_loop/agent_loop.py b/verl/experimental/agent_loop/agent_loop.py
+index 4a1f8a9..84d0c1e 100644
+--- a/verl/experimental/agent_loop/agent_loop.py
++++ b/verl/experimental/agent_loop/agent_loop.py
+@@ -619,6 +619,10 @@ class AgentLoopWorker:
+             sampling_params["top_p"] = config.val_kwargs.top_p
+             sampling_params["top_k"] = config.val_kwargs.top_k
+             sampling_params["temperature"] = config.val_kwargs.temperature
++            presence_penalty = config.val_kwargs.get("presence_penalty", 0.0)
++            # Keep training sampling unchanged; the penalty is validation-only.
++            if presence_penalty != 0.0:
++                sampling_params["presence_penalty"] = presence_penalty
+ 
+         # by default, we assume it's a single turn agent
+         if "agent_name" not in batch.non_tensor_batch:
+diff --git a/verl/trainer/config/rollout/rollout.yaml b/verl/trainer/config/rollout/rollout.yaml
+index cbf45e2..e5e0e27 100644
+--- a/verl/trainer/config/rollout/rollout.yaml
++++ b/verl/trainer/config/rollout/rollout.yaml
+@@ -163,6 +163,9 @@ val_kwargs:
+   # Sampling temperature for rollout.
+   temperature: 0
+ 
++  # Validation has an independent presence penalty.
++  presence_penalty: 0.0
++
+   # whether to repeat n times for validation
+   n: 1
+ 
+diff --git a/verl/utils/reward_score/geo3k.py b/verl/utils/reward_score/geo3k.py
+index 8a85087..95ef3d9 100644
+--- a/verl/utils/reward_score/geo3k.py
++++ b/verl/utils/reward_score/geo3k.py
+@@ -17,7 +17,7 @@ from mathruler.grader import extract_boxed_content, grade_answer
+ 
+ 
+ def format_reward(predict_str: str) -> float:
+-    pattern = re.compile(r"<think>.*</think>.*\\boxed\{.*\}.*", re.DOTALL)
++    pattern = re.compile(r"<thinking>.*</thinking>.*\\boxed\{.*\}.*", re.DOTALL)
+     match_result = re.fullmatch(pattern, predict_str)
+     return 1.0 if match_result else 0.0
+ 
+diff --git a/verl/workers/config/rollout.py b/verl/workers/config/rollout.py
+index 03ee534..537833b 100644
+--- a/verl/workers/config/rollout.py
++++ b/verl/workers/config/rollout.py
+@@ -42,6 +42,7 @@ class SamplingConfig(BaseConfig):
+     top_p: float = 1.0
+     do_sample: bool = True
+     n: int = 1
++    presence_penalty: float = 0.0
+ 
+ 
+ @dataclass
+diff --git a/verl/workers/engine_workers.py b/verl/workers/engine_workers.py
+index c0ef011..a7f48b0 100644
+--- a/verl/workers/engine_workers.py
++++ b/verl/workers/engine_workers.py
+@@ -83,7 +83,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
+     def __init__(self, config: TrainingWorkerConfig):
+         Worker.__init__(self)
+ 
+-        from verl.workers.engine import BaseEngine, EngineRegistry
++        from verl.workers.engine import BaseEngine
+ 
+         initialize_global_process_group_ray(timeout_second=None)
+ 
+@@ -132,14 +132,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
+         )
+ 
+         self.model_config.model_type = self.config.model_type
+-        self.engine: BaseEngine = EngineRegistry.new(
+-            model_type=self.config.model_type,
+-            backend=self.engine_config.strategy,
+-            model_config=self.model_config,
+-            engine_config=self.engine_config,
+-            optimizer_config=self.optimizer_config,
+-            checkpoint_config=self.checkpoint_config,
+-        )
++        self.engine: BaseEngine = self._create_engine()
+ 
+         # build dispatch info
+         self._register_dispatch_collect_info(
+@@ -155,6 +148,19 @@ class TrainingWorker(Worker, DistProfilerExtension):
+ 
+         self.loss_fn = None
+ 
++    def _create_engine(self):
++        """Create the default engine; specialized workers may override this factory."""
++        from verl.workers.engine import EngineRegistry
++
++        return EngineRegistry.new(
++            model_type=self.config.model_type,
++            backend=self.engine_config.strategy,
++            model_config=self.model_config,
++            engine_config=self.engine_config,
++            optimizer_config=self.optimizer_config,
++            checkpoint_config=self.checkpoint_config,
++        )
++
+     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+     def to(self, device, model=True, optimizer=True, grad=True):
+         """Manual control of load/offload"""

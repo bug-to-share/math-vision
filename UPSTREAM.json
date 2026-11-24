@@ -1,0 +1,10 @@
+{
+  "verl": {
+    "repository": "https://github.com/verl-project/verl",
+    "commit": "483b8a009ba3a97563edee3a19887e4862b8094a"
+  },
+  "verl-recipe": {
+    "repository": "https://github.com/verl-project/verl-recipe",
+    "commit": "e7f889574b8301cc0f0fc1d57c6d67f31ffeb689"
+  }
+}

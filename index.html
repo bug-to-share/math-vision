@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="基于图像遮挡和视觉证据验证的多模态数学推理后训练项目。">
+  <title>多模态数学推理后训练</title>
+  <style>
+    :root { color-scheme: light; --ink: #19252a; --muted: #536367; --accent: #095949; --line: #d9e1db; --paper: #fcfbf7; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.75 system-ui, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    main { max-width: 990px; margin: 0 auto; padding: clamp(28px, 7vw, 84px) clamp(20px, 5vw, 60px) 60px; }
+    header { border-top: 5px solid var(--accent); padding-top: 26px; }
+    .stack { color: var(--accent); font-size: .84rem; font-weight: 700; letter-spacing: .06em; margin: 0 0 14px; }
+    h1, h2 { line-height: 1.32; text-wrap: balance; }
+    h1 { font-size: clamp(2.2rem, 6vw, 4rem); letter-spacing: -.045em; margin: 0; }
+    .lead { font-size: clamp(1rem, 2vw, 1.23rem); max-width: 41em; color: var(--muted); margin: 20px 0 26px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: #eaf3ec; border: 1px solid #d0dfd4; margin: 28px 0 6px; }
+    .metric { padding: 16px 22px; }
+    .metric + .metric { border-left: 1px solid #c5d7ca; }
+    .metric strong { display: block; color: var(--accent); font-size: clamp(1.55rem, 4vw, 2.65rem); font-variant-numeric: tabular-nums; letter-spacing: -.04em; line-height: 1.3; }
+    .metric span, .caption, .status { font-size: .84rem; color: var(--muted); }
+    .caption { margin: 9px 0 38px; }
+    section { border-top: 1px solid var(--line); padding: 22px 0 21px; }
+    h2 { font-size: 1.27rem; margin: 0 0 9px; }
+    p { margin: 0; }
+    p + p { margin-top: .7em; }
+    .status { display: block; margin-top: 8px; }
+    code { font-size: .88em; background: #eef0eb; padding: 1px 4px; border-radius: 3px; }
+    a { color: var(--accent); text-underline-offset: .15em; }
+    footer { border-top: 1px solid var(--line); padding-top: 16px; display: flex; gap: 10px 22px; flex-wrap: wrap; font-size: .91rem; }
+    @media (max-width: 390px) { .metric { padding: 13px 11px; } .metric span { font-size: .75rem; } }
+    @media print {
+      :root { --paper: white; }
+      main { max-width: none; padding: 0; }
+      h1 { font-size: 30pt; }
+      header, section, .metrics { break-inside: avoid; }
+      .caption { margin-bottom: 15px; }
+      section { padding: 12px 0; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="stack">Qwen3-VL-4B · veRL · GRPO / DAPO · FSDP2 · vLLM</p>
+    <h1>多模态数学推理后训练</h1>
+    <p class="lead">从几何题中的视觉关系绑定错误出发，研究图像遮挡和证据验证怎样为答案奖励补充训练信号。</p>
+    <div class="metrics" aria-label="相对 DAPO 的几何评测结果">
+      <div class="metric"><strong>+4.77 pp</strong><span>GeoQA · 69.46% → 74.23%</span></div>
+      <div class="metric"><strong>+4.22 pp</strong><span>Geo3K · 71.99% → 76.21%</span></div>
+    </div>
+    <p class="caption">DAPO 与加入遮挡对照及配套 NLL 的第 120 步 checkpoint。同一评测协议，三个共同解码种子。</p>
+  </header>
+  <section>
+    <h2>预实验与数据构建</h2>
+    <p>对 300 道 Geometry3K 题比较原图、去图与文本化图形条件，逐题核查数字与线段、角度与实体的错绑。整理 2,101 道训练题，审计图像重叠，并构建 96 道视觉事实探针。难例体现出单独识别数字与正确绑定几何关系之间的差距。</p>
+  </section>
+  <section>
+    <h2>图像遮挡目标与 veRL 实现</h2>
+    <p>保留 DAPO 策略损失，用同一回答对照原图和随机遮图下的逐 token 概率。通过 veRL actor worker 与 FSDP2 engine 在更新前缓存旧策略的遮图 log-prob，验证梯度隔离、缓存版本和微批次对齐，完成双卡全参数训练。</p>
+  </section>
+  <section>
+    <h2>感知与推理解耦</h2>
+    <p>借鉴 MoCA，将原图回答中的视觉证据交给文本代理独立解题，另外验证原回答的最终答案。对答错轨迹，按证据是否足够调整 <code>&lt;recognition&gt;</code> token 的优势，减轻可靠证据在后续推导出错时受到的负向更新。</p>
+    <span class="status">完成标准 GRPO 奖励与 token 路由实现及 CPU 验证。GPU 成绩与两项方法的交互实验待补。</span>
+  </section>
+  <section>
+    <h2>评测与机制分析</h2>
+    <p>统一复评 Geo3K、GeoQA、MathVista 和 MathVision 共 2,645 道题。几何题汇总分数提高，MathVision 变化为 −0.22 个百分点。简单事实探针尚未检出读图改善。后续用随机遮挡、解耦奖励和两项组合的训练对照，分别测量困难视觉事实和最终解题的变化。</p>
+  </section>
+  <footer>
+    <a href="README.md">项目说明</a>
+    <a href="docs/experiments.md">评测与消融设计</a>
+    <a href="docs/reproduce.md">复现指南</a>
+    <a href="https://arxiv.org/abs/2507.06448">PAPO</a>
+    <a href="https://arxiv.org/abs/2605.14054">MoCA</a>
+  </footer>
+</main>
+</body>
+</html>

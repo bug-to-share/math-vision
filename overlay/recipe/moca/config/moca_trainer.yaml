@@ -1,0 +1,57 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+algorithm:
+  adv_estimator: grpo
+  norm_adv_by_std_in_grpo: true
+  use_kl_in_reward: false
+
+distillation:
+  enabled: false
+
+moca:
+  perception_weight: 0.3
+  protect: 0.2
+  punish: 0.2
+  # Local conservative interpretation; the paper does not specify this threshold.
+  pv_success_threshold: 1.0
+  audit_dir: ${trainer.default_local_dir}/../judge
+  verifier:
+    base_url: http://127.0.0.1:8000/v1
+    model: verifier
+    temperature: 0.0
+    enable_thinking: false
+    pv_max_tokens: 4096
+    svv_max_tokens: 4096
+    timeout_seconds: 180
+    max_retries: 1
+    max_concurrency: 1
+
+reward:
+  # One worker makes the concurrency cap global for this initial recipe.
+  num_workers: 1
+  reward_manager:
+    source: importlib
+    name: MoCARewardManager
+    module:
+      path: recipe/moca/reward_manager.py
+      name: MoCARewardManager
+
+actor_rollout_ref:
+  actor:
+    strategy: fsdp2
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.2
+    loss_agg_mode: seq-mean-token-mean
+    use_kl_loss: false
+    entropy_coeff: 0.0
+
+trainer:
+  use_v1: false
+  project_name: moca-geo3k
+  val_before_train: false
