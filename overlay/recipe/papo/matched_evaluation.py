@@ -112,6 +112,8 @@ async def evaluate(run, label, seeds=None):
     protocol = json.loads((run / "protocol.json").read_text())
     for name, expected in protocol["input_sha256"].items():
         assert sha(run / name) == expected, name
+    if label not in protocol["models"]:
+        raise ValueError(f"Model {label!r} is not registered in the prepared protocol")
     model = protocol["models"][label]
     processor = AutoProcessor.from_pretrained(model, local_files_only=True)
     tokenizer = processor.tokenizer
@@ -186,11 +188,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["prepare", "evaluate"])
     parser.add_argument("run", type=Path)
-    parser.add_argument("--model", choices=["papo120", "dapo120", "base4b"])
+    parser.add_argument("--model", help="Model label registered in the prepared protocol")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--base-model", type=Path)
     parser.add_argument("--dapo-model", type=Path)
     parser.add_argument("--mask-model", type=Path)
+    parser.add_argument(
+        "--arm-model", action="append", default=[], metavar="ARM=PATH",
+        help="Register an ablation arm or control checkpoint. Repeat for each model.",
+    )
     parser.add_argument("--seeds", type=int, nargs="+")
     args = parser.parse_args()
     if args.command == "prepare":
@@ -199,6 +205,11 @@ if __name__ == "__main__":
         models = {label: str(path.resolve()) for label, path in (
             ("base4b", args.base_model), ("dapo120", args.dapo_model), ("papo120", args.mask_model),
         ) if path is not None}
+        for value in args.arm_model:
+            label, _, path = value.partition("=")
+            if label not in {"A", "B", "C", "D", "B-clean-nll", "C-reward-only"} or not path or label in models:
+                parser.error(f"invalid or duplicate --arm-model {value!r}")
+            models[label] = str(Path(path).resolve())
         prepare(args.run.resolve(), args.config, models)
     else:
         if not args.model:

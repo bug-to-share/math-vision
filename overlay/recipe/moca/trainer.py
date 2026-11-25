@@ -30,6 +30,7 @@ class MoCATrainer(RayPPOTrainer):
             perception,
             protect=float(self.config.moca.protect),
             punish=float(self.config.moca.punish),
+            route_only_negative_advantages=self.config.moca.get("route_only_negative_advantages", False),
         )
         batch.meta_info["moca_routed"] = True
         result = super()._update_actor(batch)

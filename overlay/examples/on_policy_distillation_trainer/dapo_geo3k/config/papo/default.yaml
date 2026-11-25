@@ -12,3 +12,6 @@ papo:
   clean_entropy_coef: 0.03
   masked_entropy_coef: 0.03
   gradient_mode: recompute_grad
+  mask_strategy: random
+  attention_temperature: 1.0
+  attention_mix_alpha: 0.1

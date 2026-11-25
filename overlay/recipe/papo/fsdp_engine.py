@@ -33,16 +33,22 @@ class PAPOFSDPEngine(FSDPEngineWithLMHead):
                 return int(state["step"])
         return 0
 
+    def _mask_inputs(self, model_inputs):
+        return mask_image_inputs(
+            model_inputs,
+            self.model_config.processor.image_processor,
+            self.papo.mask_probability,
+            self.papo.seed,
+            self._mask_step(),
+            mask_strategy=self.papo.mask_strategy,
+            attention_temperature=self.papo.attention_temperature,
+            attention_mix_alpha=self.papo.attention_mix_alpha,
+        )
+
     def prepare_model_inputs(self, micro_batch):
         model_inputs, output_args = super().prepare_model_inputs(micro_batch)
         if tu.get(micro_batch, "papo_cache_forward", default=False):
-            model_inputs, mask_rate = mask_image_inputs(
-                model_inputs,
-                self.model_config.processor.image_processor,
-                self.papo.mask_probability,
-                self.papo.seed,
-                self._mask_step(),
-            )
+            model_inputs, mask_rate = self._mask_inputs(model_inputs)
             output_args["papo_cache_mask_fraction"] = mask_rate
         return model_inputs, output_args
 
@@ -82,13 +88,7 @@ class PAPOFSDPEngine(FSDPEngineWithLMHead):
             # Executed inside the base forward's autocast context. Reuse exactly
             # the same tokens, positions, grids and temperature for the second view.
             model_inputs, output_args = self.prepare_model_inputs(data)
-            model_inputs, mask_rate = mask_image_inputs(
-                model_inputs,
-                self.model_config.processor.image_processor,
-                self.papo.mask_probability,
-                self.papo.seed,
-                self._mask_step(),
-            )
+            model_inputs, mask_rate = self._mask_inputs(model_inputs)
             grad_context = torch.no_grad() if self.papo.gradient_mode == "stop_gradient" else nullcontext()
             with grad_context:
                 raw_output = self.module(**model_inputs, use_cache=False)

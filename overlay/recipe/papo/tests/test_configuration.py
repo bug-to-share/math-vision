@@ -25,6 +25,7 @@ def test_hydra_nested_dataclasses_and_recipe_worker_routing(enabled):
     actor = omega_conf_to_dataclass(config.actor_rollout_ref.actor)
     assert isinstance(actor.fsdp_config, PAPOFSDPEngineConfig)
     assert isinstance(actor.fsdp_config.papo, PAPOConfig)
+    assert actor.fsdp_config.papo.mask_strategy == "random"
     assert actor.engine is actor.fsdp_config
     with patch("ray.remote", side_effect=lambda cls: cls):
         runner = PAPOTaskRunner()
@@ -45,6 +46,10 @@ def test_hydra_nested_dataclasses_and_recipe_worker_routing(enabled):
         {"mask_probability": float("nan")},
         {"perception_coef": float("inf")},
         {"gradient_mode": "cached"},
+        {"mask_strategy": "unknown"},
+        {"attention_temperature": 0.0},
+        {"attention_temperature": float("inf")},
+        {"attention_mix_alpha": 1.1},
     ],
 )
 def test_invalid_algorithm_configuration_fails(kwargs):

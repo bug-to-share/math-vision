@@ -30,9 +30,12 @@ def validate_moca_config(config):
 class MoCATaskRunner(BaseTaskRunner):
     """Adapt the standard v0 task setup, substituting only the trainer class."""
 
-    def run(self, config):
+    def _trainer_class(self, config):
         from recipe.moca.trainer import MoCATrainer
 
+        return MoCATrainer
+
+    def run(self, config):
         from verl.utils.dataset.rl_dataset import collate_fn
 
         OmegaConf.resolve(config)
@@ -60,7 +63,7 @@ class MoCATaskRunner(BaseTaskRunner):
             is_train=False,
             max_samples=config.data.get("val_max_samples", -1),
         )
-        trainer = MoCATrainer(
+        trainer = self._trainer_class(config)(
             config=config,
             tokenizer=tokenizer,
             processor=processor,

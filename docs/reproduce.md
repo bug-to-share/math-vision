@@ -69,7 +69,33 @@ CUDA_VISIBLE_DEVICES=0,1 TOTAL_TRAINING_STEPS=2 TEST_FREQ=-1 \
     bash recipe/moca/run_qwen3_vl_4b_geo3k_moca_2gpu.sh
 ```
 
-当前 MoCA 为独立 GRPO 入口。组合方案及其消融需要进一步整合和验证，设计见 [评测结果与消融](experiments.md#消融设计)。
+独立 MoCA 入口保留原有判分和路由设置。通过
+`moca.route_only_negative_advantages=true` 可将失败轨迹的路由限于负优势 token。
+PAPO 默认使用随机遮挡。通过
+`actor_rollout_ref.actor.fsdp_config.papo.mask_strategy=high_attention` 或
+`hybrid_attention` 可启用高分选区或按分数采样。缺少 attention 时，两种策略使用 patch 内的通道平均方差。
+`mask_image_inputs` 也接受与已打包 patch 顺序一致的逐 patch `attention_weights`。
+`attention_temperature` 调节采样集中度，`attention_mix_alpha` 设置均匀采样分量的权重。
+
+## PAPO × MoCA 消融
+
+四组共用 `data/moca` 的结构化提示、规则答案判分、GRPO 归一化和系数为 0.03 的 clean NLL。
+A 只使用这些公共设置，B 加入缓存遮挡差异，C 加入证据奖励和感知 token 路由，D 同时加入两者。
+四组的 masked NLL 系数均为零，以便单独估计遮挡差异项。C 和 D 的裁判只评估证据代理，最终答案使用同一规则判分。
+完整设计见 [评测结果与消融](experiments.md#消融设计)。
+
+```bash
+launcher=recipe/ablation_2x2/run_qwen3_vl_4b_geo3k_2x2.sh
+for arm in A B C D; do
+    TRAIN_SEED=42 RUN_TAG=matched bash "$launcher" "$arm" --cfg job --resolve
+done
+# 去掉 --cfg job --resolve 启动训练。使用相同设备、步数和训练种子。
+PAPO_PERCEPTION_COEF=0 bash "$launcher" B --cfg job --resolve
+bash "$launcher" C-reward-only --cfg job --resolve
+```
+
+`PAPO_PERCEPTION_COEF=0` 生成单独命名的 B clean NLL 对照。
+`C-reward-only` 使用 C 的证据奖励与原始 GRPO 优势。
 
 ## 同口径评测
 
@@ -90,11 +116,35 @@ done
 
 每个 checkpoint、每个种子生成一份 JSONL，`acc` 是规则评分的逐题正确性。按 `data_source` 分组，先逐种子计算平均，再对三个种子取均值。`*-complete.json` 提供完整记录数。输出还保留 `length_capped`、`output_tokens`、输入哈希与模型路径，便于配对检查。
 
+消融评测使用消融 launcher 导出的 Hydra 配置。导出各组同一步数的 checkpoint 后，按下面的方式共用评测输入和解码种子。
+
+```bash
+mkdir -p outputs
+bash "$launcher" A --cfg job --resolve > outputs/ablation-eval-config.yaml
+python -m recipe.papo.matched_evaluation prepare outputs/ablation-eval \
+    --config outputs/ablation-eval-config.yaml --base-model "$MODEL_PATH" \
+    --arm-model A=/path/to/A --arm-model B=/path/to/B \
+    --arm-model C=/path/to/C --arm-model D=/path/to/D
+for arm in A B C D; do
+    CUDA_VISIBLE_DEVICES=0 python -m recipe.papo.matched_evaluation evaluate \
+        outputs/ablation-eval --model "$arm"
+done
+python -m recipe.ablation_2x2.analyze_2x2_interaction \
+    --a outputs/ablation-eval/A-benchmark-seed*.jsonl \
+    --b outputs/ablation-eval/B-benchmark-seed*.jsonl \
+    --c outputs/ablation-eval/C-benchmark-seed*.jsonl \
+    --d outputs/ablation-eval/D-benchmark-seed*.jsonl \
+    --seeds 42 43 44 --output outputs/ablation-interaction.json
+```
+
+分析输出按 benchmark 给出三项差值及其配对 bootstrap 95% 区间。每次重采样以题目为单位，保留同题的全部解码种子和四组预测。输出沿用输入指标的单位。
+默认分析 `acc`，可用多个 `--metric` 指定逐题打分字段，例如难事实正确率和证据遗漏率。用同一评分规程为四组生成这些字段。不同训练种子的结果分别运行分析。
+
 ## CPU 检查
 
 ```bash
 MOCA_TEST_TOKENIZER="$MODEL_PATH" CUDA_VISIBLE_DEVICES='' \
-    python -m pytest -q recipe/papo/tests recipe/moca/tests
+    python -m pytest -q recipe/papo/tests recipe/moca/tests recipe/ablation_2x2/tests
 ```
 
 未配置本地 tokenizer 时，MoCA 只跳过依赖真实 tokenizer 的测试。训练、评测和裁判可能需要不同的 GPU 容量，按实际模型和输出预算做容量检查。

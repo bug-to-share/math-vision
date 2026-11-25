@@ -1,0 +1,139 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+ablation:
+  route_tokens: false
+
+algorithm:
+  adv_estimator: grpo
+  norm_adv_by_std_in_grpo: true
+  use_kl_in_reward: false
+
+critic:
+  enable: false
+
+distillation:
+  enabled: false
+
+data:
+  train_batch_size: 4
+  max_prompt_length: 2048
+  max_response_length: 4096
+  filter_overlong_prompts: true
+  filter_overlong_prompts_workers: 4
+  truncation: error
+  image_key: images
+  image_patch_size: 16
+  custom_cls:
+    path: pkg://recipe.papo.eval_dataset
+    name: PAPOEvaluationDataset
+  papo_eval_max_pixels: 1048576
+
+moca:
+  use_rule_outcome: true
+  use_evidence_reward: false
+  perception_weight: 0.3
+  protect: 0.2
+  punish: 0.2
+  route_only_negative_advantages: false
+  pv_success_threshold: 1.0
+  audit_dir: ${trainer.default_local_dir}/../judge
+  verifier:
+    base_url: http://127.0.0.1:8000/v1
+    model: verifier
+    temperature: 0.0
+    enable_thinking: false
+    pv_max_tokens: 4096
+    svv_max_tokens: 4096
+    timeout_seconds: 180
+    max_retries: 1
+    max_concurrency: 1
+
+reward:
+  num_workers: 1
+  reward_manager:
+    source: importlib
+    name: MoCARewardManager
+    module:
+      path: recipe/moca/reward_manager.py
+      name: MoCARewardManager
+
+actor_rollout_ref:
+  model:
+    use_remove_padding: true
+    enable_gradient_checkpointing: true
+    use_fused_kernels: false
+  actor:
+    strategy: fsdp2
+    clip_ratio_low: 0.2
+    clip_ratio_high: 0.2
+    loss_agg_mode: seq-mean-token-mean
+    use_kl_loss: false
+    entropy_coeff: 0.0
+    optim:
+      lr: 1.0e-6
+    ppo_mini_batch_size: ${data.train_batch_size}
+    ppo_epochs: 1
+    data_loader_seed: ${data.seed}
+    use_dynamic_bsz: false
+    ppo_micro_batch_size_per_gpu: 1
+    entropy_from_logits_with_chunking: true
+    fsdp_config:
+      _target_: recipe.papo.config.PAPOFSDPEngineConfig
+      ulysses_sequence_parallel_size: 1
+      param_offload: true
+      optimizer_offload: true
+      use_torch_compile: false
+      papo:
+        _target_: recipe.papo.config.PAPOConfig
+        enabled: true
+        mask_probability: 0.6
+        mask_strategy: random
+        attention_temperature: 1.0
+        attention_mix_alpha: 0.1
+        seed: ${data.seed}
+        # Match clean NLL across all cells. Isolate the occlusion difference
+        # term by leaving the masked NLL coefficient at zero.
+        clean_entropy_coef: 0.03
+        masked_entropy_coef: 0.0
+        perception_coef: 0.0
+        gradient_mode: cached_old
+  rollout:
+    name: vllm
+    tensor_model_parallel_size: 1
+    n: 8
+    seed: ${data.seed}
+    temperature: 0.7
+    gpu_memory_utilization: 0.75
+    max_model_len: 6144
+    max_num_seqs: 16
+    max_num_batched_tokens: 4096
+    enforce_eager: true
+    enable_chunked_prefill: true
+    log_prob_use_dynamic_bsz: false
+    log_prob_micro_batch_size_per_gpu: 1
+    val_kwargs:
+      do_sample: true
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      presence_penalty: 1.5
+      n: 1
+
+trainer:
+  use_v1: false
+  project_name: papo-moca-2x2
+  nnodes: 1
+  n_gpus_per_node: 2
+  total_epochs: 2
+  total_training_steps: 120
+  val_before_train: false
+  test_freq: 20
+  save_freq: 10
+  resume_mode: disable
+  logger: [console, tensorboard]

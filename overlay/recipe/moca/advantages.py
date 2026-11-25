@@ -11,6 +11,7 @@ def route_advantages(
     perception: torch.Tensor,
     protect: float = 0.2,
     punish: float = 0.2,
+    route_only_negative_advantages: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     if not 0 <= protect <= 1 or not 0 <= punish <= 1:
         raise ValueError("MoCA protection and punishment must be in [0, 1]")
@@ -25,8 +26,11 @@ def route_advantages(
     valid = response_mask.bool()
     target = perception_mask.bool() & valid
     failed = outcome.eq(0).unsqueeze(1)
-    protected = target & failed & perception.eq(1).unsqueeze(1)
-    punished = target & failed & perception.eq(0).unsqueeze(1)
+    routable = target & failed
+    if route_only_negative_advantages:
+        routable &= advantages < 0
+    protected = routable & perception.eq(1).unsqueeze(1)
+    punished = routable & perception.eq(0).unsqueeze(1)
     delta = advantages.abs() * (protect * protected - punish * punished)
     result = (advantages + delta) * valid
     denominator = max(int(valid.sum()), 1)

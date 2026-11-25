@@ -37,9 +37,10 @@ def test_cached_loss_matches_fixed_target_and_rejects_missing_or_live_cache():
         papo_loss(actor_config(), PAPOConfig(gradient_mode="cached_old"), outputs(clean), data)
 
 
-def test_engine_masks_once_then_only_clean_forward_across_updates(monkeypatch):
+@pytest.mark.parametrize("strategy,mask_fraction", [("random", 1.0), ("hybrid_attention", 0.5)])
+def test_engine_masks_once_then_only_clean_forward_across_updates(monkeypatch, strategy, mask_fraction):
     monkeypatch.setattr("verl.workers.engine.fsdp.transformer_impl.get_device_name", lambda: "cpu")
-    papo = PAPOConfig(gradient_mode="cached_old", mask_probability=1)
+    papo = PAPOConfig(gradient_mode="cached_old", mask_probability=mask_fraction, mask_strategy=strategy)
     engine = engine_fixture(monkeypatch, papo)
     prepare_inputs = engine.prepare_model_inputs
     prepare_outputs = engine.prepare_model_outputs
@@ -58,7 +59,7 @@ def test_engine_masks_once_then_only_clean_forward_across_updates(monkeypatch):
     with torch.no_grad():
         _, output = engine.forward_step(data, None, forward_only=True)
     cached = output["model_output"]["log_probs"].clone()
-    assert output["metrics"]["papo/cache_mask_fraction"] == 1
+    assert output["metrics"]["papo/cache_mask_fraction"] == mask_fraction
     assert engine.module.grad_modes == [False]
     data.pop("papo_cache_forward")
     data["papo_masked_old_log_probs"] = nested([cached])

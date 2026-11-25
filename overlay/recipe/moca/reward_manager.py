@@ -46,22 +46,27 @@ class MoCARewardManager(RewardManagerBase):
         if source != "hiyouga/geometry3k":
             raise ValueError("The initial MoCA training recipe supports Geo3K training only")
         question = extra["moca_question"]
-        outcome = await self.verifier.score(question, str(truth), response)
-        calls = [outcome]
+        outcome = None
+        calls = []
+        if self.settings.get("use_rule_outcome", False):
+            info["moca_outcome"] = accuracy
+        else:
+            outcome = await self.verifier.score(question, str(truth), response)
+            info["moca_outcome"] = float(outcome["score"])
+            calls.append(outcome)
         proxy = proxy_score = None
-        if evidence.valid:
+        if evidence.valid and self.settings.get("use_evidence_reward", True):
             proxy = await self.verifier.solve(question, evidence.text)
             proxy_score = await self.verifier.score(question, str(truth), proxy["text"])
             calls.extend([proxy, proxy_score])
             # The paper leaves the fractional-SVV -> binary-PV threshold unspecified.
             info["moca_perception"] = float(proxy_score["score"] >= self.settings.pv_success_threshold)
-        info["moca_outcome"] = float(outcome["score"])
         info["moca_judge_calls"] = float(len(calls))
         for kind in ("prompt", "completion"):
             info[f"moca_judge_{kind}_tokens"] = float(sum(c["usage"].get(f"{kind}_tokens", 0) for c in calls))
         reward = info["moca_outcome"] + float(self.settings.perception_weight) * info["moca_perception"]
         audit_dir = self.settings.get("audit_dir")
-        if audit_dir:
+        if audit_dir and calls:
             path = Path(audit_dir)
             path.mkdir(parents=True, exist_ok=True)
             record = {

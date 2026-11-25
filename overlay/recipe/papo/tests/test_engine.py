@@ -71,8 +71,11 @@ def data_and_loss(papo):
 @pytest.mark.parametrize(
     "mode,expected_grad_modes", [("recompute_grad", [True, True]), ("stop_gradient", [True, False])]
 )
-def test_paired_forward_loss_remains_live_and_outputs_are_detached(monkeypatch, mode, expected_grad_modes):
-    papo = PAPOConfig(mask_probability=1, gradient_mode=mode)
+@pytest.mark.parametrize("strategy,mask_fraction", [("random", 1.0), ("high_attention", 0.5)])
+def test_paired_forward_loss_remains_live_and_outputs_are_detached(
+    monkeypatch, mode, expected_grad_modes, strategy, mask_fraction
+):
+    papo = PAPOConfig(mask_probability=mask_fraction, gradient_mode=mode, mask_strategy=strategy)
     engine = engine_fixture(monkeypatch, papo)
     data, loss_fn = data_and_loss(papo)
     loss, output = engine.forward_step(data, loss_fn, forward_only=False)
@@ -81,7 +84,7 @@ def test_paired_forward_loss_remains_live_and_outputs_are_detached(monkeypatch, 
     assert engine.module.grad_modes == expected_grad_modes
     assert output["model_output"]["log_probs"].grad_fn is None
     assert "papo_masked_log_probs" not in output["model_output"]
-    assert output["metrics"]["papo/mask_fraction"] == 1
+    assert output["metrics"]["papo/mask_fraction"] == mask_fraction
 
 
 def test_inference_compute_loss_uses_clean_forward_only(monkeypatch):

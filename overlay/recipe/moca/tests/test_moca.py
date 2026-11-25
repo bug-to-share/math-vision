@@ -76,6 +76,38 @@ def test_zero_advantages_and_padding_stay_zero():
     assert not result.any()
 
 
+def test_negative_advantage_guard_in_all_wrong_group():
+    from verl.trainer.ppo.core_algos import compute_grpo_outcome_advantage
+
+    rewards = torch.tensor([[0.0, 0.3, 0.0], [0.0, 0.0, 0.0]])
+    valid = torch.tensor([[1, 1, 0], [1, 1, 0]])
+    base, _ = compute_grpo_outcome_advantage(rewards, valid, np.array([0, 0]), norm_adv_by_std_in_grpo=True)
+    evidence = torch.tensor([[1, 0, 1], [1, 0, 1]])
+    args = (base, valid, evidence, torch.zeros(2), torch.tensor([1.0, 0.0]))
+    historical, _ = route_advantages(*args)
+    guarded, metrics = route_advantages(*args, route_only_negative_advantages=True)
+    assert historical[0, 0] > base[0, 0] > 0
+    assert torch.equal(guarded[0], base[0])
+    torch.testing.assert_close(guarded[1, 0], 1.2 * base[1, 0])
+    assert torch.equal(guarded[1, 1:], base[1, 1:])
+    assert metrics["moca/protected_token_fraction"] == 0
+    assert metrics["moca/punished_token_fraction"] == 0.25
+    assert metrics["moca/failed_positive_advantage_fraction"] == 0.5
+
+
+def test_negative_advantage_guard_applies_at_token_granularity():
+    base = torch.tensor([[-2.0, 2.0, 0.0]] * 3)
+    routed, _ = route_advantages(
+        base,
+        torch.ones_like(base),
+        torch.ones_like(base),
+        torch.tensor([0.0, 0.0, 1.0]),
+        torch.tensor([1.0, 0.0, 1.0]),
+        route_only_negative_advantages=True,
+    )
+    torch.testing.assert_close(routed, torch.tensor([[-1.6, 2.0, 0.0], [-2.4, 2.0, 0.0], [-2.0, 2.0, 0.0]]))
+
+
 def test_zero_coefficients_leave_grpo_unchanged():
     base = torch.tensor([[-1.0, 2.0, 0.0]])
     result, _ = route_advantages(
@@ -147,6 +179,7 @@ def test_composed_config_has_standard_grpo_and_no_papo():
         config = compose(config_name="moca_trainer", overrides=["actor_rollout_ref.rollout.n=8"])
     validate_moca_config(config)
     assert config.algorithm.norm_adv_by_std_in_grpo
+    assert config.moca.route_only_negative_advantages is False
     assert "papo" not in config.actor_rollout_ref.actor.fsdp_config
     assert not config.actor_rollout_ref.actor.use_kl_loss
 
@@ -241,3 +274,19 @@ def test_reward_validation_skips_llm_and_training_separates_roles(tokenizer):
     assert result["reward_score"] == pytest.approx(1.3)
     assert len(manager.verifier.solves) == 1 and len(manager.verifier.scores) == 2
     assert result["reward_extra_info"]["acc"] == 1
+
+    # Matched arms use the same rule-based outcome score. The control makes
+    # no judge calls, and the evidence arm judges only the text-only proxy.
+    manager.verifier = FakeVerifier()
+    manager.settings.use_rule_outcome = True
+    manager.settings.use_evidence_reward = False
+    result = asyncio.run(manager.run_single(row))
+    assert result["reward_score"] == 1
+    assert result["reward_extra_info"]["moca_judge_calls"] == 0
+    assert not manager.verifier.solves and not manager.verifier.scores
+    manager.settings.use_evidence_reward = True
+    result = asyncio.run(manager.run_single(row))
+    assert result["reward_score"] == pytest.approx(1.3)
+    assert result["reward_extra_info"]["moca_outcome"] == 1
+    assert result["reward_extra_info"]["moca_judge_calls"] == 2
+    assert len(manager.verifier.solves) == len(manager.verifier.scores) == 1

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from verl.base_config import BaseConfig
 from verl.workers.config.engine import FSDPEngineConfig
 
+from .masking import validate_mask_strategy
+
 
 @dataclass
 class PAPOConfig(BaseConfig):
@@ -17,8 +19,12 @@ class PAPOConfig(BaseConfig):
     masked_entropy_coef: float = 0.03
     # Keep the original default for historical experiments; cached_old is opt-in.
     gradient_mode: str = "recompute_grad"
+    mask_strategy: str = "random"
+    attention_temperature: float = 1.0
+    attention_mix_alpha: float = 0.1
 
     def __post_init__(self):
+        validate_mask_strategy(self.mask_strategy, self.attention_temperature, self.attention_mix_alpha)
         if not 0 <= self.mask_probability <= 1:
             raise ValueError("PAPO mask_probability must be in [0, 1]")
         if self.gradient_mode not in {"recompute_grad", "stop_gradient", "cached_old"}:

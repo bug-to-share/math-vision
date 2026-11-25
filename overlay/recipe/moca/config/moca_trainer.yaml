@@ -18,6 +18,7 @@ moca:
   perception_weight: 0.3
   protect: 0.2
   punish: 0.2
+  route_only_negative_advantages: false
   # Local conservative interpretation; the paper does not specify this threshold.
   pv_success_threshold: 1.0
   audit_dir: ${trainer.default_local_dir}/../judge
